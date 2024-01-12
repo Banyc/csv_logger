@@ -7,6 +7,12 @@ use table::Table;
 
 mod table;
 
+pub fn init(output_dir: PathBuf, rotation: RotationPolicy) {
+    let logger = CsvLogger::new(output_dir, rotation);
+    let mut log = table_log::GLOBAL_LOG.lock().unwrap();
+    log.register(Box::new(logger));
+}
+
 pub struct CsvLogger {
     output_dir: PathBuf,
     tables: HashMap<&'static str, Table>,
@@ -96,17 +102,13 @@ mod tests {
     #[test]
     fn test_logger() {
         let dir = tempfile::tempdir().unwrap();
-        {
-            let logger = CsvLogger::new(
-                dir.path().to_owned(),
-                RotationPolicy {
-                    max_records: 2,
-                    max_epochs: 2,
-                },
-            );
-            let mut log = table_log::GLOBAL_LOG.lock().unwrap();
-            log.register(Box::new(logger));
-        }
+        init(
+            dir.path().to_owned(),
+            RotationPolicy {
+                max_records: 2,
+                max_epochs: 2,
+            },
+        );
         {
             let mut log = table_log::GLOBAL_LOG.lock().unwrap();
             log.log(&TestRecord { s: "a", n: 0 });
