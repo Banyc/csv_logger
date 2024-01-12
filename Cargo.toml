@@ -9,7 +9,7 @@ edition = "2021"
 csv = "1"
 erased-serde = "0.4"
 serde = "1"
-table_log = { git = "https://github.com/Banyc/table_log.git", rev = "af225c3ba18e53bf733a8ecf5cff1ecf6b0d7f97" }
+table_log = { git = "https://github.com/Banyc/table_log.git", rev = "69b6dc4105ae9755d552c92aafa1a1903f1c17a9" }
 tempfile = "3"
 
 [dev-dependencies]
