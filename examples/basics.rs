@@ -18,7 +18,7 @@ fn main() {
             max_epochs: 2,
         },
     );
-    table_log::log(&TestRecord { s: "a", n: 0 });
-    table_log::log(&TestRecord { s: "b", n: 1 });
+    table_log::log!(&TestRecord { s: "a", n: 0 });
+    table_log::log!(&TestRecord { s: "b", n: 1 });
     table_log::flush();
 }

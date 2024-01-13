@@ -187,7 +187,7 @@ dependencies = [
 [[package]]
 name = "table_log"
 version = "0.1.0"
-source = "git+https://github.com/Banyc/table_log.git?rev=69b6dc4105ae9755d552c92aafa1a1903f1c17a9#69b6dc4105ae9755d552c92aafa1a1903f1c17a9"
+source = "git+https://github.com/Banyc/table_log.git?rev=26a3806ba29a2748c9e5b5b7bf1f75a0b417a898#26a3806ba29a2748c9e5b5b7bf1f75a0b417a898"
 dependencies = [
  "erased-serde",
  "once_cell",
