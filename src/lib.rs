@@ -20,7 +20,7 @@ pub fn init(output_dir: PathBuf, rotation: RotationPolicy) {
     drop(log);
     std::thread::Builder::new()
         .name("CsvLogger::flush()".to_string())
-        .spawn(|| {
+        .spawn(|| loop {
             std::thread::sleep(FLUSH_INTERVAL);
             let mut log = table_log::GLOBAL_LOG.lock().unwrap();
             log.flush();
