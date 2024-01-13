@@ -1,16 +1,31 @@
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use table::Table;
 
 mod table;
 
+const FLUSH_INTERVAL: Duration = Duration::from_secs(30);
+
 pub fn init(output_dir: PathBuf, rotation: RotationPolicy) {
     let logger = CsvLogger::new(output_dir, rotation);
     let mut log = table_log::GLOBAL_LOG.lock().unwrap();
+    if log.has_logger() {
+        panic!("Only one logger can be registered at a time");
+    }
     log.register(Box::new(logger));
+    drop(log);
+    std::thread::Builder::new()
+        .name("CsvLogger::flush()".to_string())
+        .spawn(|| {
+            std::thread::sleep(FLUSH_INTERVAL);
+            let mut log = table_log::GLOBAL_LOG.lock().unwrap();
+            log.flush();
+        })
+        .expect("Failed to spawn the flushing worker thread");
 }
 
 pub struct CsvLogger {
@@ -29,13 +44,26 @@ impl CsvLogger {
 }
 impl table_log::Logger for CsvLogger {
     fn log(&mut self, record: &dyn table_log::LogRecord) {
-        let table = self.tables.entry(record.table_name()).or_insert_with(|| {
-            let epoch = next_epoch(&self.output_dir, record.table_name())
-                .expect("No available epoch number");
-            let path = log_file_path(&self.output_dir, record.table_name(), epoch);
-            let writer = create_clean_log_writer(path);
-            Table::new(writer)
-        });
+        let entry = self.tables.entry(record.table_name());
+        let (table, new) = match entry {
+            std::collections::hash_map::Entry::Occupied(entry) => (entry.into_mut(), false),
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                let epoch = next_epoch(&self.output_dir, record.table_name())
+                    .expect("No available epoch number");
+                let path = log_file_path(&self.output_dir, record.table_name(), epoch);
+                let writer = create_clean_log_writer(path);
+                let table = entry.insert(Table::new(writer));
+                (table, true)
+            }
+        };
+        if new {
+            delete_old_log_file(
+                table.epoch(),
+                self.rotation.max_epochs,
+                &self.output_dir,
+                record.table_name(),
+            );
+        }
         table.serialize(record).expect("Failed to serialize");
 
         // Rotate log file
@@ -44,13 +72,13 @@ impl table_log::Logger for CsvLogger {
             let new_writer = create_clean_log_writer(new_path);
             table.replace(new_writer);
 
-            let del_epoch = table.epoch().checked_sub(self.rotation.max_epochs);
-            if let Some(del_epoch) = del_epoch {
-                let del_path = log_file_path(&self.output_dir, record.table_name(), del_epoch);
-                if del_path.exists() {
-                    std::fs::remove_file(del_path).expect("Failed to remove outdated log file");
-                }
-            }
+            let epoch = table.epoch();
+            delete_old_log_file(
+                epoch,
+                self.rotation.max_epochs,
+                &self.output_dir,
+                record.table_name(),
+            );
         }
     }
 
@@ -63,6 +91,21 @@ impl table_log::Logger for CsvLogger {
 pub struct RotationPolicy {
     pub max_records: usize,
     pub max_epochs: usize,
+}
+
+fn delete_old_log_file(
+    epoch: usize,
+    max_epochs: usize,
+    output_dir: impl AsRef<Path>,
+    table_name: &str,
+) {
+    let del_epoch = epoch.checked_sub(max_epochs);
+    if let Some(del_epoch) = del_epoch {
+        let del_path = log_file_path(output_dir, table_name, del_epoch);
+        if del_path.exists() {
+            std::fs::remove_file(del_path).expect("Failed to remove outdated log file");
+        }
+    }
 }
 
 fn create_clean_log_writer(path: impl AsRef<Path>) -> csv::Writer<std::fs::File> {
