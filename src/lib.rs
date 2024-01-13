@@ -30,7 +30,9 @@ impl CsvLogger {
 impl table_log::Logger for CsvLogger {
     fn log(&mut self, record: &dyn table_log::LogRecord) {
         let table = self.tables.entry(record.table_name()).or_insert_with(|| {
-            let path = log_file_path(&self.output_dir, record.table_name(), 0);
+            let epoch = next_epoch(&self.output_dir, record.table_name())
+                .expect("No available epoch number");
+            let path = log_file_path(&self.output_dir, record.table_name(), epoch);
             let writer = create_clean_log_writer(path);
             Table::new(writer)
         });
@@ -74,6 +76,16 @@ fn create_clean_log_writer(path: impl AsRef<Path>) -> csv::Writer<std::fs::File>
         .open(path)
         .expect("Cannot create a log file");
     csv::Writer::from_writer(file)
+}
+
+fn next_epoch(output_dir: impl AsRef<Path>, table_name: &str) -> Option<usize> {
+    for epoch in 0..usize::MAX {
+        let path = log_file_path(&output_dir, table_name, epoch);
+        if !path.exists() {
+            return Some(epoch);
+        }
+    }
+    None
 }
 
 fn log_file_path(output_dir: impl AsRef<Path>, table_name: &str, epoch: usize) -> PathBuf {
