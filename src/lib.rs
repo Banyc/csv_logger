@@ -1,5 +1,7 @@
 use std::{
     collections::HashMap,
+    io::{Read, Write},
+    num::NonZeroUsize,
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -48,8 +50,9 @@ impl table_log::Logger for CsvLogger {
         let (table, new) = match entry {
             std::collections::hash_map::Entry::Occupied(entry) => (entry.into_mut(), false),
             std::collections::hash_map::Entry::Vacant(entry) => {
-                let epoch = next_epoch(&self.output_dir, record.table_name())
-                    .expect("No available epoch number");
+                let epoch = cur_epoch(&self.output_dir, record.table_name())
+                    .map(|e| e + 1)
+                    .unwrap_or_default();
                 let path = log_file_path(&self.output_dir, record.table_name(), epoch);
                 let writer = create_clean_log_writer(path);
                 let table = entry.insert(Table::new(writer));
@@ -57,8 +60,10 @@ impl table_log::Logger for CsvLogger {
             }
         };
         if new {
+            let epoch = table.epoch();
+            write_epoch(&self.output_dir, record.table_name(), epoch);
             delete_old_log_file(
-                table.epoch(),
+                epoch,
                 self.rotation.max_epochs,
                 &self.output_dir,
                 record.table_name(),
@@ -67,12 +72,13 @@ impl table_log::Logger for CsvLogger {
         table.serialize(record).expect("Failed to serialize");
 
         // Rotate log file
-        if self.rotation.max_records < table.records_written() {
+        if self.rotation.max_records.get() <= table.records_written() {
             let new_path = log_file_path(&self.output_dir, record.table_name(), table.epoch() + 1);
             let new_writer = create_clean_log_writer(new_path);
             table.replace(new_writer);
 
             let epoch = table.epoch();
+            write_epoch(&self.output_dir, record.table_name(), epoch);
             delete_old_log_file(
                 epoch,
                 self.rotation.max_epochs,
@@ -89,7 +95,7 @@ impl table_log::Logger for CsvLogger {
     }
 }
 pub struct RotationPolicy {
-    pub max_records: usize,
+    pub max_records: NonZeroUsize,
     pub max_epochs: usize,
 }
 
@@ -121,14 +127,45 @@ fn create_clean_log_writer(path: impl AsRef<Path>) -> csv::Writer<std::fs::File>
     csv::Writer::from_writer(file)
 }
 
-fn next_epoch(output_dir: impl AsRef<Path>, table_name: &str) -> Option<usize> {
-    for epoch in 0..usize::MAX {
-        let path = log_file_path(&output_dir, table_name, epoch);
-        if !path.exists() {
-            return Some(epoch);
-        }
+fn write_epoch(output_dir: impl AsRef<Path>, table_name: &str, epoch: usize) {
+    let path = epoch_file_path(output_dir, table_name);
+    std::fs::create_dir_all(path.parent().unwrap()).expect("Failed to create directories");
+    if path.exists() {
+        std::fs::remove_file(&path).expect("Failed to delete old epoch file");
     }
-    None
+    let mut file = std::fs::File::options()
+        .create(true)
+        .write(true)
+        .open(path)
+        .expect("Failed to create an epoch file");
+    file.write_all(epoch.to_string().as_bytes())
+        .expect("Failed to write epoch to the file");
+}
+
+fn cur_epoch(output_dir: impl AsRef<Path>, table_name: &str) -> Option<usize> {
+    let path = epoch_file_path(output_dir, table_name);
+    if !path.exists() {
+        return None;
+    }
+    let mut file = std::fs::File::options()
+        .read(true)
+        .open(&path)
+        .expect("Failed to open the epoch file");
+    let mut epoch = String::new();
+    file.read_to_string(&mut epoch)
+        .expect("Failed to read the epoch file");
+    let epoch: usize = match epoch.parse() {
+        Ok(epoch) => epoch,
+        Err(_) => {
+            std::fs::remove_file(&path).expect("Failed to delete old epoch file");
+            return None;
+        }
+    };
+    Some(epoch)
+}
+
+fn epoch_file_path(output_dir: impl AsRef<Path>, table_name: &str) -> PathBuf {
+    output_dir.as_ref().join(table_name).join("epoch")
 }
 
 fn log_file_path(output_dir: impl AsRef<Path>, table_name: &str, epoch: usize) -> PathBuf {
@@ -140,6 +177,8 @@ fn log_file_path(output_dir: impl AsRef<Path>, table_name: &str, epoch: usize) -
 #[cfg(test)]
 mod tests {
     use std::io::Read;
+
+    use serial_test::serial;
 
     use super::*;
 
@@ -154,13 +193,19 @@ mod tests {
         }
     }
 
+    fn remove_logger() {
+        let mut log = table_log::GLOBAL_LOG.lock().unwrap();
+        log.remove_logger();
+    }
+
     #[test]
+    #[serial]
     fn test_logger() {
         let dir = tempfile::tempdir().unwrap();
         init(
             dir.path().to_owned(),
             RotationPolicy {
-                max_records: 2,
+                max_records: NonZeroUsize::new(2).unwrap(),
                 max_epochs: 2,
             },
         );
@@ -179,5 +224,59 @@ a,0
 b,1
 "#
         );
+
+        remove_logger();
+    }
+
+    #[test]
+    #[serial]
+    fn test_rotation() {
+        let dir = tempfile::tempdir().unwrap();
+        init(
+            dir.path().to_owned(),
+            RotationPolicy {
+                max_records: NonZeroUsize::new(2).unwrap(),
+                max_epochs: 2,
+            },
+        );
+
+        table_log::log!(&TestRecord { s: "a", n: 0 });
+        table_log::flush();
+        let path = log_file_path(dir.path(), "test", 0);
+        assert!(path.exists());
+        let path = log_file_path(dir.path(), "test", 1);
+        assert!(!path.exists());
+
+        table_log::log!(&TestRecord { s: "b", n: 1 });
+        let path = log_file_path(dir.path(), "test", 0);
+        assert!(path.exists());
+        let path = log_file_path(dir.path(), "test", 1);
+        assert!(path.exists());
+        let path = log_file_path(dir.path(), "test", 2);
+        assert!(!path.exists());
+
+        table_log::log!(&TestRecord { s: "c", n: 2 });
+        table_log::flush();
+        let path = log_file_path(dir.path(), "test", 0);
+        assert!(path.exists());
+        let path = log_file_path(dir.path(), "test", 1);
+        assert!(path.exists());
+        let path = log_file_path(dir.path(), "test", 2);
+        assert!(!path.exists());
+
+        table_log::log!(&TestRecord { s: "d", n: 3 });
+        let path = log_file_path(dir.path(), "test", 0);
+        assert!(!path.exists());
+        let path = log_file_path(dir.path(), "test", 1);
+        assert!(path.exists());
+        let path = log_file_path(dir.path(), "test", 2);
+        assert!(path.exists());
+        let path = log_file_path(dir.path(), "test", 3);
+        assert!(!path.exists());
+
+        // println!("{:?}", dir.path());
+        // std::thread::sleep(std::time::Duration::from_secs(u64::MAX));
+
+        remove_logger();
     }
 }

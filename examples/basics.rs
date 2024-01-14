@@ -1,3 +1,5 @@
+use std::num::NonZeroUsize;
+
 #[derive(serde::Serialize)]
 struct TestRecord<'caller> {
     pub s: &'caller str,
@@ -14,7 +16,7 @@ fn main() {
     csv_logger::init(
         dir.path().to_owned(),
         csv_logger::RotationPolicy {
-            max_records: 2,
+            max_records: NonZeroUsize::new(2).unwrap(),
             max_epochs: 2,
         },
     );

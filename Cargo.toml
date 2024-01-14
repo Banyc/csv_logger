@@ -9,8 +9,9 @@ edition = "2021"
 csv = "1"
 erased-serde = "0.4"
 serde = "1"
-table_log = { git = "https://github.com/Banyc/table_log.git", rev = "26a3806ba29a2748c9e5b5b7bf1f75a0b417a898" }
+table_log = { git = "https://github.com/Banyc/table_log.git", rev = "eb936cc4521dd62854a1272da6908f7d70261c2c" }
 tempfile = "3"
 
 [dev-dependencies]
 serde = { version = "1", features = ["derive"] }
+serial_test = "3"
