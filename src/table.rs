@@ -6,10 +6,10 @@ pub struct Table {
     writer: csv::Writer<std::fs::File>,
 }
 impl Table {
-    pub fn new(writer: csv::Writer<std::fs::File>) -> Self {
+    pub fn new(writer: csv::Writer<std::fs::File>, epoch: usize) -> Self {
         Self {
             records_written: 0,
-            epoch: 0,
+            epoch,
             writer,
         }
     }

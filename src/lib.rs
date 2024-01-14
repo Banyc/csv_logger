@@ -55,7 +55,7 @@ impl table_log::Logger for CsvLogger {
                     .unwrap_or_default();
                 let path = log_file_path(&self.output_dir, record.table_name(), epoch);
                 let writer = create_clean_log_writer(path);
-                let table = entry.insert(Table::new(writer));
+                let table = entry.insert(Table::new(writer, epoch));
                 (table, true)
             }
         };
