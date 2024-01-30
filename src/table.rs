@@ -1,5 +1,7 @@
 use std::io;
 
+use table_log::SerWrap;
+
 pub struct Table {
     records_written: usize,
     epoch: usize,
@@ -21,8 +23,8 @@ impl Table {
     }
 
     pub fn serialize(&mut self, record: &dyn table_log::LogRecord) -> Result<(), csv::Error> {
-        self.writer
-            .serialize(record as &dyn erased_serde::Serialize)?;
+        let record = SerWrap(record);
+        self.writer.serialize(record)?;
         self.records_written += 1;
         Ok(())
     }

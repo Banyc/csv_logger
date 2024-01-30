@@ -115,12 +115,10 @@ fn delete_old_log_file(
 }
 
 fn create_clean_log_writer(path: impl AsRef<Path>) -> csv::Writer<std::fs::File> {
-    if path.as_ref().exists() {
-        std::fs::remove_file(&path).expect("Failed to remove occupied log file");
-    }
     std::fs::create_dir_all(path.as_ref().parent().unwrap()).expect("Failed to create directories");
     let file = std::fs::File::options()
         .create(true)
+        .truncate(true)
         .write(true)
         .open(path)
         .expect("Cannot create a log file");
@@ -130,11 +128,9 @@ fn create_clean_log_writer(path: impl AsRef<Path>) -> csv::Writer<std::fs::File>
 fn write_epoch(output_dir: impl AsRef<Path>, table_name: &str, epoch: usize) {
     let path = epoch_file_path(output_dir, table_name);
     std::fs::create_dir_all(path.parent().unwrap()).expect("Failed to create directories");
-    if path.exists() {
-        std::fs::remove_file(&path).expect("Failed to delete old epoch file");
-    }
     let mut file = std::fs::File::options()
         .create(true)
+        .truncate(true)
         .write(true)
         .open(path)
         .expect("Failed to create an epoch file");
